@@ -74,7 +74,7 @@ All routes behind basic auth (username `admin`, password from env file).
 | `/` | GET | The single page. |
 | `/api/status` | GET | `{state, progress, log, device}` — flash state machine (`idle\|flashing\|done\|error`), log lines, and current device mode. Polled by the page every 1s during a flash, slower otherwise. |
 | `/api/stats` | GET | Latest stats snapshot + device info + snapshot age in seconds. Requesting this marks "someone is watching" for poll gating. |
-| `/api/flash` | POST | Multipart: `firmware` (`.bin` file) + `sha256` (computed by the browser via SubtleCrypto). 409 if a flash is running. Validates extension, ≤16MB size cap, re-hashes server-side and rejects on mismatch. Saves to a temp dir, kicks the background flash thread, returns `{"status": "started"}`. |
+| `/api/flash` | POST | Multipart: `firmware` (`.bin` file). 409 if a flash is running. Validates extension and ≤16MB size cap. Saves to a temp dir, computes the file's SHA256 server-side and reports it in the flash log (browser-side hashing is impossible: SubtleCrypto is disabled in non-HTTPS contexts). Kicks the background flash thread, returns `{"status": "started"}`. esptool's own post-write hash verification is the integrity check that matters. |
 
 ### Flash worker (`flasher.py`)
 
@@ -137,9 +137,10 @@ templated-bootstrap defaults):
   uptime, battery voltage, noise floor, last RSSI/SNR, packet counters
   (recv / sent / fwd / dups). Grayed out when the snapshot is stale; replaced
   by a mode banner when the device is in bootloader mode or disconnected.
-- **Flash section**: file picker for `.bin`, shows name/size/SHA256 after
-  selection, Flash button with a confirmation step, then a live log console
-  (the esptool output) with a state badge (flashing / done / error).
+- **Flash section**: file picker for `.bin`, shows name/size after selection
+  (the upload's SHA256 appears in the flash log, computed server-side), Flash
+  button with a confirmation step, then a live log console (the esptool
+  output) with a state badge (flashing / done / error).
 - Polling: `/api/stats` every 10s; `/api/status` every 1s while a flash is
   active, every 5s otherwise.
 
@@ -149,9 +150,10 @@ templated-bootstrap defaults):
   `/opt/g2flasher/g2flasher.env` (`G2FLASHER_PASSWORD=...`), mode 600,
   referenced by the systemd unit via `EnvironmentFile=`. Not in git.
 - Plain HTTP on a trusted LAN — accepted risk, user's call.
-- Upload constraints: `.bin` extension, 16MB cap, SHA256 must match the
-  browser-computed hash (integrity, not authenticity — any valid upload is
-  trusted; the user is the only operator).
+- Upload constraints: `.bin` extension, 16MB cap. Server reports the upload's
+  SHA256 in the flash log for manual comparison against published checksums;
+  esptool verifies the written flash after writing (integrity, not
+  authenticity — any valid upload is trusted; the user is the only operator).
 
 ## Deployment
 
