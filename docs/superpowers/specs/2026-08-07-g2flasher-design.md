@@ -129,7 +129,9 @@ protocol, no database, no packet parsing, no Pi-health metrics.
 
 ### Page (`index.html`)
 
-Single page, plain HTML/CSS/JS, no frontend framework:
+Single page, plain HTML/CSS/JS, no frontend framework. Visual design follows
+the frontend-design skill — the user wants a modern, clean interface (not
+templated-bootstrap defaults):
 
 - **Stats tiles** (top): device name, firmware version, board, radio config,
   uptime, battery voltage, noise floor, last RSSI/SNR, packet counters
