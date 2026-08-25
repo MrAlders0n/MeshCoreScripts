@@ -83,27 +83,35 @@ def _flash_worker(fw_path: str, poller):
             _fail("No Station G2/G3 found on USB")
             return
 
+        touch_output: list[str] = []
         if dev["mode"] == "normal":
             _set_state("flashing", "Entering bootloader mode...")
             _append_log(f"Device in normal mode: {dev['path']}")
             _append_log("Entering bootloader via 1200-baud touch...")
-            _append_log("NOTE: an error from the next command is expected — the device "
-                        "disconnects from USB as it enters the bootloader.")
-            _run_esptool(["--port", dev["path"], "--baud", "1200",
-                          "--after", "no_reset", "chip_id"], timeout=30)
+            # The touch always "fails" — the device drops off USB mid-command — so
+            # its output is captured rather than logged, and surfaced below only if
+            # the bootloader port never turns up.
+            _, touch_output = _run_esptool(["--port", dev["path"], "--baud", "1200",
+                                            "--after", "no_reset", "chip_id"],
+                                           timeout=30, echo=False)
             time.sleep(TOUCH_SETTLE_SECS)
         else:
             _append_log("Device already in bootloader mode")
 
         dev = _wait_for_bootloader()
         if dev is None:
+            if touch_output:
+                _append_log("--- touch output (for diagnosis) ---")
+                for line in touch_output:
+                    _append_log(line)
             _fail("Bootloader port did not appear")
             return
+        _append_log("Bootloader ready.")
 
         _set_state("flashing", "Writing firmware...")
         _append_log(f"Flashing at {FLASH_OFFSET} on {dev['path']}")
-        code = _run_esptool(["--port", dev["path"], "write_flash",
-                             FLASH_OFFSET, fw_path], timeout=FLASH_TIMEOUT_SECS)
+        code, _ = _run_esptool(["--port", dev["path"], "write_flash",
+                                FLASH_OFFSET, fw_path], timeout=FLASH_TIMEOUT_SECS)
         if code == 0:
             _set_state("done", "Flash complete")
             _append_log("Firmware flash completed successfully.")
@@ -125,31 +133,41 @@ def _flash_worker(fw_path: str, poller):
         _append_log("Done.")
 
 
-def _run_esptool(args: list[str], timeout: float) -> int:
-    """Run esptool as a subprocess, streaming output lines into the log.
+def _run_esptool(args: list[str], timeout: float,
+                 echo: bool = True) -> tuple[int, list[str]]:
+    """Run esptool as a subprocess and return (exit code, output lines).
 
-    The 1200-baud touch 'fails' by design (the device disconnects), so the
-    caller decides what to do with the exit code.
+    Output is always collected. With echo=True it is also streamed into the
+    flash log as it arrives; with echo=False the caller receives the lines and
+    decides whether they are worth showing. The 1200-baud touch 'fails' by
+    design (the device disconnects), so the caller decides what to do with the
+    exit code.
     """
     cmd = ESPTOOL_CMD + list(args)
-    _append_log("$ " + " ".join(cmd))
+    if echo:
+        _append_log("$ " + " ".join(cmd))
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, bufsize=1)
     except FileNotFoundError:
-        _append_log("ERROR: esptool not found — is it installed in the venv?")
-        return 127
+        message = "ERROR: esptool not found — is it installed in the venv?"
+        if echo:
+            _append_log(message)
+        return 127, [message]
 
+    lines: list[str] = []
     timer = threading.Timer(timeout, proc.kill)
     timer.start()
     try:
         for line in proc.stdout:
             line = line.rstrip("\n")
             if line:
-                _append_log(line)
-                if "Writing at" in line or "%" in line:
-                    _set_state("flashing", line.strip())
-        return proc.wait()
+                lines.append(line)
+                if echo:
+                    _append_log(line)
+                    if "Writing at" in line or "%" in line:
+                        _set_state("flashing", line.strip())
+        return proc.wait(), lines
     finally:
         timer.cancel()
 
