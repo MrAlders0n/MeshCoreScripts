@@ -157,6 +157,11 @@ templated-bootstrap defaults):
 
 ## Deployment
 
+> **Superseded 2026-08-25** by
+> `2026-08-25-g2flasher-git-deployment-design.md`. The rsync flow below is
+> kept for history; the Pi now runs from a git checkout at
+> `/opt/MeshCoreScripts` and updates with `sudo g2flasher-update`.
+
 - `rsync` the `g2flasher/` folder to the Pi; create a venv;
   `pip install -r requirements.txt`.
 - systemd unit runs as `cadmin`, binds port 80 via

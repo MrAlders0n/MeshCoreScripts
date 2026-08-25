@@ -9,42 +9,45 @@ Both stations are ESP32-S3 boards with the same 16MB flash layout, so the
 flash flow is identical; only the USB device name differs (`BQ_Station_G2_*`
 vs `Station_G3_ESP32_*`).
 
+## Layout
+
+Code is a git checkout; machine-local state is not:
+
+    /opt/MeshCoreScripts/       # this repo, cadmin-owned
+      └── g2flasher/            # the app
+    /opt/g2flasher/             # NOT in git
+      ├── venv/
+      └── g2flasher.env         # G2FLASHER_PASSWORD, mode 600
+
 ## Install (on the Pi)
 
-From your workstation, sync the code:
+    curl -fsSL -o /tmp/bootstrap.sh \
+      https://raw.githubusercontent.com/MrAlders0n/MeshCoreScripts/main/g2flasher/bootstrap.sh
+    less /tmp/bootstrap.sh        # optional: read it before running it
+    sudo bash /tmp/bootstrap.sh
 
-    rsync -a --delete --exclude .venv --exclude tests --exclude __pycache__ \
-        g2flasher/ cadmin@172.30.50.48:/tmp/g2flasher-src/
+bootstrap.sh migrates an *existing* install — it expects `/opt/g2flasher/venv`
+and `/opt/g2flasher/g2flasher.env` to be there already, and aborts rather than
+guessing if either is missing.
 
-Then on the Pi (`ssh cadmin@172.30.50.48`), one-time setup — needs sudo:
-
-    sudo mkdir -p /opt/g2flasher
-    sudo chown cadmin:cadmin /opt/g2flasher
-    sudo usermod -aG dialout cadmin        # serial port access
-    
-    # Group membership takes effect on new login; log out and back in (or reboot)
-    # before running g2flasher manually from this shell. (systemd service is unaffected.)
-    
-    rsync -a --delete --exclude venv --exclude g2flasher.env /tmp/g2flasher-src/ /opt/g2flasher/
-    python3 -m venv /opt/g2flasher/venv
-    /opt/g2flasher/venv/bin/pip install -r /opt/g2flasher/requirements.txt
-    echo 'G2FLASHER_PASSWORD=CHANGE-ME' > /opt/g2flasher/g2flasher.env
-    chmod 600 /opt/g2flasher/g2flasher.env
-    sudo cp /opt/g2flasher/g2flasher.service /etc/systemd/system/
-    sudo systemctl daemon-reload
-    sudo systemctl enable --now g2flasher
-
-Browse to http://172.30.50.48/ — username `admin`, password as set above.
+Browse to http://172.30.50.48/ — username `admin`, password from
+`/opt/g2flasher/g2flasher.env`.
 
 ## Updating
 
-    rsync -a --delete --exclude .venv --exclude tests --exclude __pycache__ \
-        --exclude venv --exclude g2flasher.env \
-        g2flasher/ cadmin@172.30.50.48:/opt/g2flasher/
-    ssh cadmin@172.30.50.48 sudo systemctl restart g2flasher
+    ssh cadmin@172.30.50.48
+    sudo g2flasher-update
 
-(Direct rsync to /opt works after first install since cadmin owns it; the
-service restart needs sudo.)
+That pulls, reinstalls dependencies only if `requirements.txt` changed,
+reinstalls the systemd unit only if it changed, restarts the service, and
+reports the SD lock state.
+
+If the SD is overlay-locked, both scripts refuse rather than write changes that
+would vanish on the next reboot. Unlock first:
+
+    sudo sd-unlock          # reboots
+    sudo g2flasher-update
+    sudo sd-lock            # reboots, only if you want it locked again
 
 ## Notes
 
@@ -52,4 +55,5 @@ service restart needs sudo.)
 - Stats poll only runs while a browser has the page open, and never while
   the device is in bootloader mode.
 - Environment: `G2FLASHER_PASSWORD` (required), `G2FLASHER_PORT` (default 80).
-- Run tests: `python -m pytest tests/ -v` from `g2flasher/`.
+- Run the shell tests: `bash tests/run_tests.sh` from `g2flasher/`.
+  (There is no Python test suite yet.)
