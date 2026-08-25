@@ -123,9 +123,11 @@ Installed to `/usr/local/sbin` (present in sudo's `secure_path`, so
 `sudo g2flasher-update` resolves; note `/usr/local/sbin` is *not* in `cadmin`'s
 non-login SSH `PATH`, so the bare name will not).
 
-1. Require root.
-2. If root fs is `overlay`, refuse and say to run `sudo sd-unlock` first. This is
+1. If root fs is `overlay`, refuse and say to run `sudo sd-unlock` first. This is
    inert while the box stays unlocked, and correct if it is ever re-locked.
+2. Assert the checkout exists, then require root. The root check comes last of the
+   three guards, immediately before the first side effect, so the earlier guards
+   stay reachable — and therefore testable — as an unprivileged user.
 3. Record `HEAD`, then `git pull --ff-only` **as `cadmin`**. `--ff-only` means a
    diverged or force-pushed branch stops with an error instead of merging.
 4. `git diff --name-only OLD..HEAD` decides the rest: `pip install -r` only if
