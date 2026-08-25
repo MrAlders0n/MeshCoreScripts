@@ -146,6 +146,7 @@ Expected: version 0.9 or later. (Not currently installed on this Mac; brew is at
 `g2flasher/tests/helpers.sh` — bash 3.2 compatible, no dependencies:
 
 ```bash
+# shellcheck shell=bash
 # Minimal assertion helpers for the g2flasher shell tests.
 # Sourced by test_*.sh. Bash 3.2 compatible (macOS ships 3.2).
 
@@ -155,18 +156,22 @@ TESTS_FAILED=0
 pass() { printf '  ok   %s\n' "$*"; }
 fail() { TESTS_FAILED=$((TESTS_FAILED + 1)); printf '  FAIL %s\n' "$*" >&2; }
 
+# The command under test runs in a subshell: the scripts being tested call
+# die(), which exits, and an exit in the current shell would kill the test run.
+# Filesystem side effects still persist; only shell-variable ones would not.
+
 # assert_ok <description> <command...>  — command must exit 0
 assert_ok() {
     local desc="$1"; shift
     TESTS_RUN=$((TESTS_RUN + 1))
-    if "$@" >/dev/null 2>&1; then pass "$desc"; else fail "$desc"; fi
+    if ( "$@" ) >/dev/null 2>&1; then pass "$desc"; else fail "$desc"; fi
 }
 
 # assert_fail <description> <command...>  — command must exit non-zero
 assert_fail() {
     local desc="$1"; shift
     TESTS_RUN=$((TESTS_RUN + 1))
-    if "$@" >/dev/null 2>&1; then fail "$desc (expected non-zero exit)"; else pass "$desc"; fi
+    if ( "$@" ) >/dev/null 2>&1; then fail "$desc (expected non-zero exit)"; else pass "$desc"; fi
 }
 
 assert_eq() {
