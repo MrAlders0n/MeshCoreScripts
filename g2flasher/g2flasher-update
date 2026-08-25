@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Update g2flasher from its git checkout and restart the service.
+# Installed to /usr/local/sbin/g2flasher-update — run as: sudo g2flasher-update
+set -euo pipefail
+
+: "${REPO_DIR:=/opt/MeshCoreScripts}"
+: "${STATE_DIR:=/opt/g2flasher}"
+: "${APP_DIR:=${REPO_DIR}/g2flasher}"
+: "${UNIT_DEST:=/etc/systemd/system/g2flasher.service}"
+: "${HELPER_DEST:=/usr/local/sbin/g2flasher-update}"
+: "${REPO_USER:=cadmin}"
+: "${FINDMNT:=findmnt}"
+: "${GIT:=git}"
+: "${SYSTEMCTL:=systemctl}"
+: "${RUNUSER:=/usr/sbin/runuser}"
+: "${SD_STATUS:=/usr/local/sbin/sd-status}"
+
+log() { printf '%s\n' "$*"; }
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+root_fs_type() {
+    "$FINDMNT" -n -o FSTYPE / 2>/dev/null || true
+}
+
+is_overlay_locked() {
+    case "$(root_fs_type)" in
+        *overlay*) return 0 ;;
+        *)         return 1 ;;
+    esac
+}
+
+as_repo_user() {
+    "$RUNUSER" -u "$REPO_USER" -- "$@"
+}
+
+repo_head() {
+    as_repo_user "$GIT" -C "$REPO_DIR" rev-parse HEAD
+}
+
+changed_files() {  # $1=old rev, $2=new rev
+    as_repo_user "$GIT" -C "$REPO_DIR" diff --name-only "$1" "$2"
+}
+
+requirements_changed() {  # $1=old rev, $2=new rev
+    changed_files "$1" "$2" | grep -qx 'g2flasher/requirements.txt'
+}
+
+unit_needs_install() {  # $1=source, $2=destination
+    ! cmp -s "$1" "$2"
+}
+
+main() {
+    if is_overlay_locked; then
+        die "root filesystem is overlay-locked — an update would vanish on reboot.
+Run 'sudo sd-unlock' (it reboots), then re-run this command."
+    fi
+
+    [ -d "$REPO_DIR/.git" ] || die "$REPO_DIR is not a git checkout — run bootstrap.sh first"
+    [ "$(id -u)" -eq 0 ] || die "run as: sudo g2flasher-update"
+
+    local old new
+    old="$(repo_head)"
+    log "Pulling $REPO_DIR (at ${old:0:8})..."
+    as_repo_user "$GIT" -C "$REPO_DIR" pull --ff-only
+    new="$(repo_head)"
+
+    if [ "$old" = "$new" ]; then
+        log "Already up to date at ${new:0:8}."
+    else
+        log "Updated ${old:0:8} -> ${new:0:8}"
+        if requirements_changed "$old" "$new"; then
+            log "requirements.txt changed — installing dependencies..."
+            "$STATE_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
+        fi
+    fi
+
+    if unit_needs_install "$APP_DIR/g2flasher.service" "$UNIT_DEST"; then
+        log "Installing updated systemd unit..."
+        install -m 644 -o root -g root "$APP_DIR/g2flasher.service" "$UNIT_DEST"
+        "$SYSTEMCTL" daemon-reload
+    fi
+
+    log "Restarting g2flasher..."
+    "$SYSTEMCTL" restart g2flasher
+    sleep 2
+    "$SYSTEMCTL" --no-pager --lines=0 status g2flasher || true
+
+    # Self-update by atomic rename: the running shell keeps its original inode,
+    # so overwriting the file it is reading cannot corrupt this run.
+    if ! cmp -s "$APP_DIR/g2flasher-update" "$HELPER_DEST"; then
+        log "Updating $HELPER_DEST (takes effect on the next run)..."
+        install -m 755 -o root -g root "$APP_DIR/g2flasher-update" "${HELPER_DEST}.new"
+        mv -f "${HELPER_DEST}.new" "$HELPER_DEST"
+    fi
+
+    log ""
+    if [ -x "$SD_STATUS" ]; then "$SD_STATUS"; fi
+}
+
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    main "$@"
+fi
