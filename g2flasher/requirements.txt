@@ -1,0 +1,4 @@
+flask>=3.0
+waitress>=3.0
+pyserial>=3.5
+esptool>=4.7,<5

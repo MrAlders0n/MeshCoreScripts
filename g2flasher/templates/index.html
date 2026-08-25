@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Station G2/G3 Flasher</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230B0E12'/><path d='M0 13 L5 3 M5.5 13 L10.5 3 M11 13 L16 3' stroke='%2363C7D6' stroke-width='1.4' fill='none'/></svg>">
+<style>
+  :root {
+    --ink:     #0B0E12;
+    --well:    #080A0D;
+    --panel:   #12161C;
+    --line:    #232A33;
+    --text:    #DDE3EA;
+    --muted:   #8A95A3;
+    --signal:  #63C7D6;
+    --amber:   #E8A33D;
+    --green:   #5FBF7F;
+    --red:     #E2585B;
+    --gray:    #6B7784;
+
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+    --gap: 8px;
+    --pad: 20px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { margin: 0; }
+
+  body {
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 72px;
+  }
+
+  /* ---- signature: chirp band -------------------------------------- */
+
+  .chirp {
+    position: relative;
+    height: 36px;
+    overflow: hidden;
+    border-bottom: 1px solid var(--line);
+    color: var(--signal);
+  }
+  .chirp-teeth {
+    display: block; width: 100%; height: 36px; opacity: .32;
+    transition: opacity .3s ease;
+  }
+  .chirp-teeth path { stroke: currentColor; stroke-width: 1; fill: none; }
+  .chirp-sweep {
+    position: absolute; top: 0; bottom: 0; left: -140px; width: 140px;
+    background: linear-gradient(90deg, rgba(99,199,214,0), rgba(99,199,214,.10) 78%, rgba(99,199,214,.42));
+    border-right: 1px solid rgba(99,199,214,.7);
+    animation: sweep 10s linear infinite;
+  }
+  @keyframes sweep {
+    from { transform: translateX(0); }
+    to   { transform: translateX(calc(100vw + 140px)); }
+  }
+  .chirp[data-mode="bootloader"] { color: var(--amber); }
+  .chirp[data-mode="bootloader"] .chirp-teeth { opacity: .40; }
+  .chirp[data-mode="bootloader"] .chirp-sweep { display: none; }
+  .chirp[data-mode="disconnected"] { color: var(--gray); }
+  .chirp[data-mode="disconnected"] .chirp-teeth { opacity: .16; }
+  .chirp[data-mode="disconnected"] .chirp-sweep { display: none; }
+
+  /* ---- shell ------------------------------------------------------ */
+
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 var(--pad); }
+
+  .masthead {
+    display: flex; align-items: baseline; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px 16px;
+    padding: 26px 0 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .title { font-size: 18px; font-weight: 600; letter-spacing: -.015em; margin: 0; }
+  .meta {
+    font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+    margin: 5px 0 0; overflow-wrap: anywhere;
+  }
+
+  .chip {
+    font-size: 11.5px; font-weight: 500; letter-spacing: .01em;
+    padding: 4px 10px; border-radius: 999px; white-space: nowrap;
+    border: 1px solid var(--gray); color: var(--gray);
+    background: rgba(107,119,132,.10);
+  }
+  .chip[data-mode="normal"]     { border-color: rgba(95,191,127,.45); color: var(--green); background: rgba(95,191,127,.09); }
+  .chip[data-mode="bootloader"] { border-color: rgba(232,163,61,.45); color: var(--amber); background: rgba(232,163,61,.09); }
+
+  main { display: flex; flex-direction: column; gap: 40px; padding-top: 30px; }
+
+  .sec-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; margin-bottom: 14px;
+  }
+  .eyebrow {
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .16em; color: var(--muted); margin: 0;
+  }
+  .note { font-family: var(--mono); font-size: 11px; color: var(--muted); text-align: right; }
+
+  /* ---- stats tiles ------------------------------------------------ */
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--gap);
+    transition: opacity .25s ease;
+  }
+  .grid.is-stale { opacity: .5; }
+
+  .tile {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    padding: 13px 14px 15px;
+    min-width: 0;
+  }
+  .tile-k {
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .14em; color: var(--muted);
+    margin-bottom: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .tile-val {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 4px;
+    overflow-wrap: anywhere;
+  }
+  .tile-v { font-size: 20px; font-weight: 500; letter-spacing: -.02em; line-height: 1.15; }
+  .tile-u { font-size: 11px; color: var(--muted); }
+  .tile-sep { font-size: 13px; color: var(--line); margin: 0 3px; }
+  .tile--text .tile-v { font-size: 13.5px; letter-spacing: 0; line-height: 1.45; }
+  .tile--dual .tile-v { font-size: 16px; }
+
+  .banner {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    padding: 15px 16px;
+    font-family: var(--mono); font-size: 12.5px; color: var(--muted);
+    display: none;
+  }
+  .banner[data-mode="bootloader"] { border-color: rgba(232,163,61,.35); color: var(--amber); background: rgba(232,163,61,.06); }
+
+  /* ---- flash ------------------------------------------------------ */
+
+  .drop {
+    display: block; text-align: center; cursor: pointer;
+    border: 1px dashed var(--line); background: var(--panel);
+    padding: 26px 18px; transition: border-color .18s ease, background .18s ease;
+  }
+  .drop:hover, .drop.is-over { border-color: rgba(99,199,214,.55); background: rgba(99,199,214,.05); }
+  .drop:focus-within { outline: 2px solid var(--signal); outline-offset: 2px; }
+  .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .drop-main { display: block; font-size: 13.5px; overflow-wrap: anywhere; }
+  .drop-sub { display: block; font-family: var(--mono); font-size: 11.5px; color: var(--muted); margin-top: 7px; overflow-wrap: anywhere; }
+  .drop.has-file { border-style: solid; border-color: rgba(99,199,214,.35); }
+  .drop.has-file .drop-main { font-family: var(--mono); font-size: 13px; color: var(--signal); }
+
+  .actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 14px; }
+
+  .btn {
+    position: relative; overflow: hidden;
+    font-family: inherit; font-size: 13px; font-weight: 500;
+    padding: 10px 20px; cursor: pointer;
+    color: var(--signal);
+    background: rgba(99,199,214,.10);
+    border: 1px solid rgba(99,199,214,.45);
+    transition: background .15s ease, border-color .15s ease, color .15s ease;
+  }
+  .btn:hover:not(:disabled) { background: rgba(99,199,214,.18); }
+  .btn:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  .btn:disabled { cursor: not-allowed; opacity: .4; color: var(--muted); border-color: var(--line); background: transparent; }
+  .btn.is-armed {
+    color: var(--amber); border-color: rgba(232,163,61,.65); background: rgba(232,163,61,.14);
+  }
+  .btn.is-armed:hover:not(:disabled) { background: rgba(232,163,61,.22); }
+  .btn.is-armed::after {
+    content: ""; position: absolute; left: 0; bottom: 0; height: 2px;
+    background: var(--amber); width: 100%;
+    animation: countdown 5s linear forwards;
+  }
+  @keyframes countdown { from { width: 100%; } to { width: 0; } }
+
+  .notice { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .notice.is-error { color: var(--red); }
+
+  /* ---- console ----------------------------------------------------- */
+
+  .console { display: none; }
+  .console.is-visible { display: block; }
+
+  .badge {
+    display: flex; align-items: center; gap: 9px;
+    border: 1px solid var(--line); border-bottom: 0;
+    background: var(--panel); padding: 9px 14px;
+    font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gray); flex: none; }
+  .badge-state { text-transform: uppercase; letter-spacing: .1em; font-weight: 600; color: var(--text); }
+  .badge-progress { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge[data-state="flashing"] .dot { background: var(--amber); animation: pulse 1.4s ease-in-out infinite; }
+  .badge[data-state="flashing"] .badge-state { color: var(--amber); }
+  .badge[data-state="done"] .dot { background: var(--green); }
+  .badge[data-state="done"] .badge-state { color: var(--green); }
+  .badge[data-state="error"] .dot { background: var(--red); }
+  .badge[data-state="error"] .badge-state { color: var(--red); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+
+  .log {
+    margin: 0; border: 1px solid var(--line); background: var(--well);
+    padding: 13px 14px; max-height: 340px; overflow: auto;
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.6; color: #B7C0CB;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+  }
+  .log::-webkit-scrollbar { width: 10px; }
+  .log::-webkit-scrollbar-thumb { background: var(--line); }
+
+  @media (max-width: 480px) {
+    .grid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+    .masthead { padding-top: 20px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chirp-sweep { animation: none; display: none; }
+    .badge[data-state="flashing"] .dot { animation: none; }
+    * { transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="chirp" id="chirp" data-mode="disconnected" aria-hidden="true">
+  <svg class="chirp-teeth" height="36" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <pattern id="chirpPattern" width="27" height="36" patternUnits="userSpaceOnUse">
+        <path d="M0 34.5 L27 1.5" />
+      </pattern>
+    </defs>
+    <rect width="100%" height="36" fill="url(#chirpPattern)" stroke="none"></rect>
+  </svg>
+  <div class="chirp-sweep"></div>
+</div>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <h1 class="title">Station G2/G3 Flasher</h1>
+      <p class="meta" id="meta">Connecting&hellip;</p>
+    </div>
+    <span class="chip" id="chip" data-mode="disconnected">&#9679; No device</span>
+  </header>
+
+  <main>
+
+    <section>
+      <div class="sec-head">
+        <h2 class="eyebrow">Repeater</h2>
+        <span class="note" id="statsNote"></span>
+      </div>
+
+      <div class="banner" id="statsBanner" data-mode="disconnected"></div>
+
+      <div class="grid" id="statsGrid">
+        <div class="tile tile--text">
+          <div class="tile-k">Name</div>
+          <div class="tile-val"><span class="tile-v" data-v="name">&mdash;</span><span class="tile-u" data-u="name"></span></div>
+        </div>
+        <div class="tile tile--text">
+          <div class="tile-k">Firmware</div>
+          <div class="tile-val"><span class="tile-v" data-v="firmware">&mdash;</span><span class="tile-u" data-u="firmware"></span></div>
+        </div>
+        <div class="tile tile--text">
+          <div class="tile-k">Board</div>
+          <div class="tile-val"><span class="tile-v" data-v="board">&mdash;</span><span class="tile-u" data-u="board"></span></div>
+        </div>
+        <div class="tile tile--text">
+          <div class="tile-k">Radio config</div>
+          <div class="tile-val"><span class="tile-v" data-v="radio">&mdash;</span><span class="tile-u" data-u="radio"></span></div>
+        </div>
+        <div class="tile">
+          <div class="tile-k">Uptime</div>
+          <div class="tile-val"><span class="tile-v" data-v="uptime">&mdash;</span><span class="tile-u" data-u="uptime"></span></div>
+        </div>
+        <div class="tile">
+          <div class="tile-k">Battery</div>
+          <div class="tile-val"><span class="tile-v" data-v="battery">&mdash;</span><span class="tile-u" data-u="battery"></span></div>
+        </div>
+        <div class="tile">
+          <div class="tile-k">Noise floor</div>
+          <div class="tile-val"><span class="tile-v" data-v="noise">&mdash;</span><span class="tile-u" data-u="noise"></span></div>
+        </div>
+        <div class="tile tile--dual">
+          <div class="tile-k">Last RSSI / SNR</div>
+          <div class="tile-val">
+            <span class="tile-v" data-v="rssi">&mdash;</span><span class="tile-u" data-u="rssi"></span>
+            <span class="tile-sep">/</span>
+            <span class="tile-v" data-v="snr">&mdash;</span><span class="tile-u" data-u="snr"></span>
+          </div>
+        </div>
+        <div class="tile">
+          <div class="tile-k">Packets RX</div>
+          <div class="tile-val"><span class="tile-v" data-v="rx">&mdash;</span><span class="tile-u" data-u="rx"></span></div>
+        </div>
+        <div class="tile">
+          <div class="tile-k">Packets TX</div>
+          <div class="tile-val"><span class="tile-v" data-v="tx">&mdash;</span><span class="tile-u" data-u="tx"></span></div>
+        </div>
+        <div class="tile">
+          <div class="tile-k">Forwarded</div>
+          <div class="tile-val"><span class="tile-v" data-v="fwd">&mdash;</span><span class="tile-u" data-u="fwd"></span></div>
+        </div>
+        <div class="tile">
+          <div class="tile-k">Duplicates</div>
+          <div class="tile-val"><span class="tile-v" data-v="dups">&mdash;</span><span class="tile-u" data-u="dups"></span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-head">
+        <h2 class="eyebrow">Firmware</h2>
+      </div>
+
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept=".bin">
+        <span class="drop-main" id="dropMain">Drop a .bin file here, or click to browse</span>
+        <span class="drop-sub" id="dropSub">Written to the radio at 0x10000</span>
+      </label>
+
+      <div class="actions">
+        <button class="btn" id="flashBtn" type="button" disabled>Flash firmware</button>
+        <span class="notice" id="notice" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <section class="console" id="console">
+      <div class="sec-head">
+        <h2 class="eyebrow">Flash log</h2>
+      </div>
+      <div class="badge" id="badge" data-state="idle" aria-live="polite">
+        <span class="dot"></span>
+        <span class="badge-state" id="badgeState">Idle</span>
+        <span class="badge-progress" id="badgeProgress"></span>
+      </div>
+      <pre class="log" id="log"></pre>
+    </section>
+
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var DASH = "—";
+
+  var vEls = {}, uEls = {};
+  document.querySelectorAll("[data-v]").forEach(function (el) { vEls[el.dataset.v] = el; });
+  document.querySelectorAll("[data-u]").forEach(function (el) { uEls[el.dataset.u] = el; });
+
+  var chirp = document.getElementById("chirp");
+  var chip = document.getElementById("chip");
+  var meta = document.getElementById("meta");
+  var statsGrid = document.getElementById("statsGrid");
+  var statsBanner = document.getElementById("statsBanner");
+  var statsNote = document.getElementById("statsNote");
+  var drop = document.getElementById("drop");
+  var fileInput = document.getElementById("file");
+  var dropMain = document.getElementById("dropMain");
+  var dropSub = document.getElementById("dropSub");
+  var flashBtn = document.getElementById("flashBtn");
+  var notice = document.getElementById("notice");
+  var consoleSec = document.getElementById("console");
+  var badge = document.getElementById("badge");
+  var badgeState = document.getElementById("badgeState");
+  var badgeProgress = document.getElementById("badgeProgress");
+  var logEl = document.getElementById("log");
+
+  var CHIP_TEXT = {
+    normal: "● Connected",
+    bootloader: "● Bootloader mode",
+    disconnected: "● No device"
+  };
+  var BANNER_TEXT = {
+    bootloader: "Device is in bootloader mode — stats unavailable",
+    disconnected: "No device connected"
+  };
+  var STATE_TEXT = { idle: "Idle", flashing: "Flashing", done: "Done", error: "Error" };
+
+  /* ---- helpers --------------------------------------------------- */
+
+  async function getJSON(url) {
+    var r = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+    if (!r.ok) throw new Error(url + ": " + r.status);
+    return r.json();
+  }
+
+  function setVal(key, value, unit) {
+    var v = vEls[key], u = uEls[key];
+    if (!v) return;
+    v.textContent = value == null ? DASH : String(value);
+    if (u) u.textContent = value == null ? "" : (unit || "");
+  }
+
+  function fmtUptime(secs) {
+    if (secs == null) return null;
+    var d = Math.floor(secs / 86400),
+        h = Math.floor((secs % 86400) / 3600),
+        m = Math.floor((secs % 3600) / 60);
+    if (d) return d + "d " + h + "h " + m + "m";
+    if (h) return h + "h " + m + "m";
+    return m + "m";
+  }
+
+  function fmtBattery(mv) { return mv == null ? null : (mv / 1000).toFixed(2); }
+
+  function fmtCount(n) { return n == null ? null : Number(n).toLocaleString(); }
+
+  function fmtNum(n, digits) {
+    if (n == null) return null;
+    var x = Number(n);
+    if (!isFinite(x)) return null;
+    return digits == null ? String(x) : x.toFixed(digits);
+  }
+
+  function fmtAge(secs) {
+    if (secs == null) return "never";
+    var s = Math.max(0, Math.round(secs));
+    if (s < 60) return s + "s ago";
+    var m = Math.floor(s / 60);
+    if (m < 60) return m + "m ago";
+    return Math.floor(m / 60) + "h ago";
+  }
+
+  function fmtBytes(n) {
+    if (n < 1024) return n + " B";
+    if (n < 1024 * 1024) return (n / 1024).toFixed(0) + " KB";
+    return (n / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  /* ---- device mode ------------------------------------------------ */
+
+  var deviceMode = "disconnected";
+
+  function setDeviceMode(dev) {
+    var mode = (dev && dev.mode) || "disconnected";
+    if (!CHIP_TEXT[mode]) mode = "disconnected";
+    deviceMode = mode;
+    chip.dataset.mode = mode;
+    chip.textContent = CHIP_TEXT[mode];
+    chirp.dataset.mode = mode;
+  }
+
+  /* ---- stats ------------------------------------------------------ */
+
+  function renderStats(data) {
+    setDeviceMode(data.device);
+
+    var info = data.device_info || {};
+    var stats = data.stats || {};
+    var core = stats.core || {};
+    var radio = stats.radio || {};
+    var pk = stats.packets || {};
+
+    setVal("name", info.name != null ? info.name : null);
+    setVal("firmware", info.firmware != null ? info.firmware : null);
+    setVal("board", info.board != null ? info.board : null);
+    setVal("radio", info.radio_config != null ? info.radio_config : null);
+
+    setVal("uptime", fmtUptime(core.uptime_secs));
+    setVal("battery", fmtBattery(core.battery_mv), "V");
+    setVal("noise", fmtNum(radio.noise_floor), "dBm");
+    setVal("rssi", fmtNum(radio.last_rssi), "dBm");
+    setVal("snr", fmtNum(radio.last_snr, 1), "dB");
+
+    var recv = pk.recv != null ? pk.recv : pk.recv_total;
+    var sent = pk.sent != null ? pk.sent : pk.sent_total;
+    setVal("rx", fmtCount(recv));
+    setVal("tx", fmtCount(sent));
+    setVal("fwd", fmtCount(pk.fwd_total));
+
+    var dd = pk.direct_dups, fd = pk.flood_dups;
+    setVal("dups", (dd == null && fd == null) ? null : fmtCount((dd || 0) + (fd || 0)));
+
+    var path = (data.device && data.device.path) || "no serial port";
+    meta.textContent = path + "  ·  " +
+      (data.age_secs == null ? "no readings yet" : "updated " + fmtAge(data.age_secs));
+
+    var normal = deviceMode === "normal";
+    statsGrid.style.display = normal ? "" : "none";
+    statsBanner.style.display = normal ? "none" : "block";
+    if (!normal) {
+      statsBanner.dataset.mode = deviceMode;
+      statsBanner.textContent = BANNER_TEXT[deviceMode] || BANNER_TEXT.disconnected;
+      statsNote.textContent = "";
+      statsGrid.classList.remove("is-stale");
+      return;
+    }
+
+    var stale = data.age_secs != null && data.age_secs > 30;
+    statsGrid.classList.toggle("is-stale", stale);
+    statsNote.textContent = stale ? "stale · last read " + fmtAge(data.age_secs) : "";
+  }
+
+  var statsTimer = null;
+  async function pollStats() {
+    try { renderStats(await getJSON("/api/stats")); } catch (e) { /* keep last render */ }
+    statsTimer = setTimeout(pollStats, 10000);
+  }
+  function pokeStats() {
+    if (statsTimer !== null) { clearTimeout(statsTimer); statsTimer = null; }
+    pollStats();
+  }
+
+  /* ---- status + log ------------------------------------------------ */
+
+  var flashing = false;
+  var lastState = null;
+  var lastLog = "";
+
+  function renderStatus(s) {
+    setDeviceMode(s.device);
+
+    var state = s.state || "idle";
+    badge.dataset.state = state;
+    badgeState.textContent = STATE_TEXT[state] || state;
+    badgeProgress.textContent = s.progress || "";
+
+    var lines = Array.isArray(s.log) ? s.log : [];
+    if (lines.length || state !== "idle") consoleSec.classList.add("is-visible");
+
+    var text = lines.join("\n");
+    if (text !== lastLog) {
+      var atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
+      logEl.textContent = text;
+      if (atBottom || lastLog === "") logEl.scrollTop = logEl.scrollHeight;
+      lastLog = text;
+    }
+
+    if (state !== lastState) {
+      if (state === "flashing") { disarm(); notice.textContent = ""; notice.classList.remove("is-error"); }
+      if (lastState === "flashing") pokeStats();
+      lastState = state;
+    }
+    updateFlashBtn();
+  }
+
+  var statusTimer = null;
+  async function pollStatus() {
+    try {
+      var s = await getJSON("/api/status");
+      flashing = s.state === "flashing";
+      renderStatus(s);
+    } catch (e) { /* transient */ }
+    statusTimer = setTimeout(pollStatus, flashing ? 1000 : 5000);
+  }
+  function pokeStatus() {
+    if (statusTimer !== null) { clearTimeout(statusTimer); statusTimer = null; }
+    pollStatus();
+  }
+
+  /* ---- file selection ---------------------------------------------- */
+
+  var selected = null;
+
+  function selectFile(f) {
+    if (!f) return;
+    if (!/\.bin$/i.test(f.name)) {
+      setNotice("Firmware must be a .bin file. " + f.name + " was not accepted.", true);
+      return;
+    }
+    selected = f;
+    drop.classList.add("has-file");
+    dropMain.textContent = f.name;
+    dropSub.textContent = fmtBytes(f.size) + " · click to choose a different file";
+    setNotice("");
+    disarm();
+    updateFlashBtn();
+  }
+
+  function setNotice(text, isError) {
+    notice.textContent = text || "";
+    notice.classList.toggle("is-error", !!isError);
+  }
+
+  fileInput.addEventListener("change", function () {
+    if (fileInput.files && fileInput.files.length) selectFile(fileInput.files[0]);
+  });
+
+  ["dragenter", "dragover"].forEach(function (evt) {
+    drop.addEventListener(evt, function (e) {
+      e.preventDefault();
+      drop.classList.add("is-over");
+    });
+  });
+  ["dragleave", "dragend", "drop"].forEach(function (evt) {
+    drop.addEventListener(evt, function () { drop.classList.remove("is-over"); });
+  });
+  drop.addEventListener("drop", function (e) {
+    e.preventDefault();
+    var dt = e.dataTransfer;
+    if (dt && dt.files && dt.files.length) {
+      try { fileInput.files = dt.files; } catch (err) { /* not assignable everywhere */ }
+      selectFile(dt.files[0]);
+    }
+  });
+
+  /* ---- two-step flash ---------------------------------------------- */
+
+  var armTimer = null;
+
+  function updateFlashBtn() {
+    flashBtn.disabled = flashing || !selected;
+    if (flashBtn.disabled) disarm();
+  }
+
+  function arm() {
+    flashBtn.classList.add("is-armed");
+    flashBtn.textContent = "Confirm flash?";
+    armTimer = setTimeout(disarm, 5000);
+  }
+
+  function disarm() {
+    if (armTimer !== null) { clearTimeout(armTimer); armTimer = null; }
+    flashBtn.classList.remove("is-armed");
+    flashBtn.textContent = "Flash firmware";
+  }
+
+  flashBtn.addEventListener("click", function () {
+    if (flashBtn.disabled) return;
+    if (armTimer === null) { arm(); return; }
+    disarm();
+    submitFlash(selected);
+  });
+
+  async function submitFlash(file) {
+    if (!file) return;
+    flashing = true;
+    updateFlashBtn();
+    setNotice("Uploading " + file.name + "…");
+    consoleSec.classList.add("is-visible");
+
+    var form = new FormData();
+    form.append("firmware", file, file.name);
+
+    var r;
+    try {
+      r = await fetch("/api/flash", { method: "POST", body: form, credentials: "same-origin" });
+    } catch (e) {
+      flashing = false;
+      updateFlashBtn();
+      setNotice("Upload failed. Check that the flasher is still reachable.", true);
+      return;
+    }
+
+    if (!r.ok) {
+      flashing = false;
+      updateFlashBtn();
+      var body = await r.json().catch(function () { return {}; });
+      var msg = body.error;
+      if (!msg && r.status === 413) msg = "Firmware is too large. The limit is 16 MB.";
+      setNotice(msg || ("Flash did not start (" + r.status + ")"), true);
+      pokeStatus();
+      return;
+    }
+
+    setNotice("");
+    pokeStatus();
+  }
+
+  /* ---- go ----------------------------------------------------------- */
+
+  pollStats();
+  pollStatus();
+})();
+</script>
+</body>
+</html>

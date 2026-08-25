@@ -1,0 +1,20 @@
+[Unit]
+Description=g2flasher - Station G2/G3 web firmware flasher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cadmin
+Group=cadmin
+WorkingDirectory=/opt/MeshCoreScripts/g2flasher
+EnvironmentFile=/opt/g2flasher/g2flasher.env
+ExecStart=/opt/g2flasher/venv/bin/python /opt/MeshCoreScripts/g2flasher/app.py
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
