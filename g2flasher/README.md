@@ -17,7 +17,7 @@ vs `Station_G3_ESP32_*`).
 
 Code is a git checkout; machine-local state is not:
 
-    /opt/MeshCoreScripts/       # this repo, cadmin-owned
+    /opt/MeshCoreScripts/       # this repo, owned by the service account
       └── g2flasher/            # the app
     /opt/g2flasher/             # NOT in git
       ├── venv/
@@ -34,12 +34,14 @@ bootstrap.sh migrates an *existing* install — it expects `/opt/g2flasher/venv`
 and `/opt/g2flasher/g2flasher.env` to be there already, and aborts rather than
 guessing if either is missing.
 
-Browse to http://172.30.50.48/ — username `admin`, password from
-`/opt/g2flasher/g2flasher.env`.
+Browse to the Pi on port 80 — username `admin`, password from
+`/opt/g2flasher/g2flasher.env`. Which address that is depends on how the host
+is reachable: a deployment that firewalls port 80 off the LAN and reaches it
+over a VPN or overlay network will not answer on its LAN address at all.
 
 ## Updating
 
-    ssh cadmin@172.30.50.48
+    ssh <service-account>@<pi>
     sudo g2flasher-update
 
 That pulls, reinstalls dependencies only if `requirements.txt` changed,
@@ -106,8 +108,9 @@ disrupted flash beats one that never starts.
 
 **Known limitation:** if the g2flasher process itself is killed mid-flash, the
 `finally` never runs and the unit stays down until someone starts it —
-`Restart=always` does not help, because the stop was explicit. Keep a manual
-stop/start runbook as the fallback:
+`Restart=always` does not help, because the stop was explicit. The uploaded
+firmware from that run is cleaned up on the next start, but the unit is not.
+Keep a manual stop/start runbook as the fallback:
 
     systemctl is-active <unit>
     sudo systemctl start <unit>

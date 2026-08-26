@@ -22,6 +22,30 @@ UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "g2flasher_uploads")
 AUTH_USER = "admin"
 
 
+def _clear_stale_uploads():
+    """Delete firmware left behind by a flash that never finished.
+
+    A flash removes its own upload when it ends, but a process killed mid-flash
+    never reaches that — the same gap that can leave the telemetry unit stopped.
+    Every upload is given a fresh temporary name, so anything already here
+    belongs to a previous process and no running flash can still want it.
+    """
+    try:
+        names = os.listdir(UPLOAD_DIR)
+    except OSError:
+        return   # nothing uploaded yet on this host, or no such directory
+    removed = 0
+    for name in names:
+        try:
+            os.remove(os.path.join(UPLOAD_DIR, name))
+            removed += 1
+        except OSError:
+            pass
+    if removed:
+        logging.getLogger(__name__).info(
+            "Cleared %d stale firmware upload(s) left by a previous run", removed)
+
+
 def create_app(password: str) -> Flask:
     app = Flask(__name__, static_folder=None)
     app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
@@ -80,6 +104,8 @@ def main():
     if not password:
         sys.exit("G2FLASHER_PASSWORD is not set — refusing to start")
     port = int(os.environ.get("G2FLASHER_PORT", "80"))
+
+    _clear_stale_uploads()
 
     from waitress import serve
     app = create_app(password)
