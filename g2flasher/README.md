@@ -49,11 +49,59 @@ would vanish on the next reboot. Unlock first:
     sudo g2flasher-update
     sudo sd-lock            # reboots, only if you want it locked again
 
+## Sharing the radio with a telemetry daemon
+
+Some sites run a daemon beside g2flasher that streams the radio's packet log to
+MQTT (Cisien/meshcoretomqtt is the usual one). It holds the station's serial
+port open continuously — the same port esptool needs.
+
+**This does not fail loudly.** The daemon does not open the port exclusively, so
+esptool's own open succeeds and nothing reports a conflict; the two just share
+the stream, and the daemon's reads swallow bootloader replies while its device
+polling injects bytes into the flashing protocol. A flash started while
+telemetry is running does not error out — it corrupts or stalls, usually on
+hardware that is nowhere near you. Do not write code or docs here that expect a
+port-busy error; there is none to catch. A serial multiplexer is no answer
+either: the flash begins with a 1200-baud touch, and a PTY forwards neither
+baud changes nor control-line changes.
+
+So a flash stops that unit first and starts it again when it is done:
+
+- The unit is named by `G2FLASHER_SERIAL_UNIT` (default `mctomqtt`).
+- Nothing happens unless `systemctl is-active` reports the unit running, so a
+  host with no such daemon pays one unprivileged query per flash and logs
+  nothing.
+- A unit that was already stopped is left stopped — an operator may have
+  stopped it deliberately.
+- The restart runs in a `finally`, so a flash that fails or throws part-way
+  still puts telemetry back.
+- Both actions appear in the flash log in the web UI, rather than happening
+  invisibly.
+
+Telemetry units of this kind typically set `Restart=always`. That does not fight
+an explicit `systemctl stop` — systemd honours the stop — so there is no race
+back onto the port mid-flash.
+
+Stopping a unit needs privilege and g2flasher runs as an unprivileged service
+account, so a deployment has to permit that account to run `systemctl stop` and
+`systemctl start` for this unit under sudo without a password. Where it is not
+permitted, g2flasher logs that it could not stop the unit and flashes anyway: a
+disrupted flash beats one that never starts.
+
+**Known limitation:** if the g2flasher process itself is killed mid-flash, the
+`finally` never runs and the unit stays down until someone starts it —
+`Restart=always` does not help, because the stop was explicit. Keep a manual
+stop/start runbook as the fallback:
+
+    systemctl is-active <unit>
+    sudo systemctl start <unit>
+
 ## Notes
 
 - Flash sequence: 1200-baud bootloader touch → `esptool write_flash 0x10000`.
 - Stats poll only runs while a browser has the page open, and never while
   the device is in bootloader mode.
-- Environment: `G2FLASHER_PASSWORD` (required), `G2FLASHER_PORT` (default 80).
+- Environment: `G2FLASHER_PASSWORD` (required), `G2FLASHER_PORT` (default 80),
+  `G2FLASHER_SERIAL_UNIT` (default `mctomqtt`, see above).
 - Run the shell tests: `bash tests/run_tests.sh` from `g2flasher/`.
   (There is no Python test suite yet.)
