@@ -1,7 +1,6 @@
-"""Live repeater stats over the MeshCore serial CLI. Nothing is stored."""
+"""Repeater identity over the MeshCore serial CLI. Nothing is stored."""
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time
@@ -66,16 +65,6 @@ class SerialReader:
                 self._connected = False
                 return None
 
-    def send_command_json(self, command: str) -> dict | None:
-        raw = self.send_command(command)
-        if not raw:
-            return None
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            logger.warning("Non-JSON response for %r: %s", command, raw[:200])
-            return None
-
     def _drain_pending(self):
         saved = self._port.timeout
         self._port.timeout = 0.05
@@ -124,10 +113,6 @@ CONNECT_SETTLE_SECS = 2
 
 DEVICE_INFO_COMMANDS = [
     ("get name", "name"),
-    ("get public.key", "public_key"),
-    ("get radio", "radio_config"),
-    ("get lat", "lat"),
-    ("get lon", "lon"),
     ("ver", "firmware"),
     ("board", "board"),
 ]
@@ -136,15 +121,19 @@ ERROR_RESPONSES = {"unknown command", "error", "invalid"}
 
 
 class StatsPoller:
-    """Polls the repeater CLI while someone is watching; keeps only the
-    latest snapshot in memory."""
+    """Reads the repeater's name, firmware and board while someone is watching;
+    keeps only the latest snapshot in memory.
+
+    Those three do not change under a live connection, so they are read once
+    per connection rather than on every tick. A flash drops the connection —
+    the device leaves normal mode — so new firmware is picked up on reconnect.
+    """
 
     def __init__(self, reader_factory=None):
         self._reader_factory = reader_factory or (lambda path: SerialReader(path))
         self._reader = None
         self._lock = threading.Lock()
-        self._snapshot = {"device_info": {}, "stats": {"core": None, "radio": None, "packets": None},
-                          "updated_at": None}
+        self._snapshot = {"device_info": {}, "updated_at": None}
         self._last_viewer = 0.0
         self._thread = None
         self._stop_event = threading.Event()
@@ -164,7 +153,6 @@ class StatsPoller:
     def get_snapshot(self) -> dict:
         with self._lock:
             snap = {"device_info": dict(self._snapshot["device_info"]),
-                    "stats": dict(self._snapshot["stats"]),
                     "updated_at": self._snapshot["updated_at"]}
         snap["age_secs"] = (time.time() - snap["updated_at"]) if snap["updated_at"] else None
         return snap
@@ -202,30 +190,14 @@ class StatsPoller:
             return
         if not self._has_viewer():
             return
-        if self._reader is None or not self._reader.connected:
-            reader = self._reader_factory(dev["path"])
-            if not reader.connect():
-                return
-            self._reader = reader
-            time.sleep(CONNECT_SETTLE_SECS)  # let the radio settle after open
-            self._collect_device_info()
-
-        if self._stop_event.is_set():
-            return  # Bail out early if stop was requested
-        core = self._reader.send_command_json("stats-core")
-        if self._stop_event.is_set():
-            return  # Bail out early if stop was requested
-        radio = self._reader.send_command_json("stats-radio")
-        if self._stop_event.is_set():
-            return  # Bail out early if stop was requested
-        packets = self._reader.send_command_json("stats-packets")
-        # Firmware 1.14.x AGC resets briefly report a 0 dBm noise floor,
-        # which is physically impossible — treat as missing.
-        if radio is not None and radio.get("noise_floor") == 0:
-            radio["noise_floor"] = None
-        with self._lock:
-            self._snapshot["stats"] = {"core": core, "radio": radio, "packets": packets}
-            self._snapshot["updated_at"] = time.time()
+        if self._reader is not None and self._reader.connected:
+            return  # already read; nothing here changes without a reconnect
+        reader = self._reader_factory(dev["path"])
+        if not reader.connect():
+            return
+        self._reader = reader
+        time.sleep(CONNECT_SETTLE_SECS)  # let the radio settle after open
+        self._collect_device_info()
 
     def _collect_device_info(self):
         info = {}
@@ -243,6 +215,7 @@ class StatsPoller:
             info[key] = value
         with self._lock:
             self._snapshot["device_info"] = info
+            self._snapshot["updated_at"] = time.time()
 
     def _disconnect(self):
         if self._reader is not None:

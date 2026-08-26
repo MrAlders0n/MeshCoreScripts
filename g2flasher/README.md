@@ -1,9 +1,9 @@
 # g2flasher
 
-Web-based firmware flasher + live stats for a MeshCore Station G2 or
-Station G3 connected to a Raspberry Pi over USB. Upload a `.bin`, watch
-esptool run, see repeater stats while the page is open. Nothing is stored
-on the Pi.
+Web-based firmware flasher for a MeshCore Station G2 or Station G3
+connected to a Raspberry Pi over USB. Upload a `.bin`, watch esptool run,
+see the repeater's name, firmware and board while the page is open.
+Nothing is stored on the Pi.
 
 Both stations are ESP32-S3 boards with the same 16MB flash layout, so the
 flash flow is identical; only the USB device name differs (`BQ_Station_G2_*`
@@ -99,8 +99,9 @@ stop/start runbook as the fallback:
 ## Notes
 
 - Flash sequence: 1200-baud bootloader touch → `esptool write_flash 0x10000`.
-- Stats poll only runs while a browser has the page open, and never while
-  the device is in bootloader mode.
+- Name, firmware and board are read once per serial connection, only while
+  a browser has the page open, and never while the device is in bootloader
+  mode. A flash drops the connection, so the firmware shown refreshes itself.
 - Environment: `G2FLASHER_PASSWORD` (required), `G2FLASHER_PORT` (default 80),
   `G2FLASHER_SERIAL_UNIT` (default `mctomqtt`, see above).
 - Run the shell tests: `bash tests/run_tests.sh` from `g2flasher/`.

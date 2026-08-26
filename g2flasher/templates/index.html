@@ -107,17 +107,14 @@
     font-size: 10px; font-weight: 600; text-transform: uppercase;
     letter-spacing: .16em; color: var(--muted); margin: 0;
   }
-  .note { font-family: var(--mono); font-size: 11px; color: var(--muted); text-align: right; }
 
-  /* ---- stats tiles ------------------------------------------------ */
+  /* ---- repeater tiles --------------------------------------------- */
 
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: var(--gap);
-    transition: opacity .25s ease;
   }
-  .grid.is-stale { opacity: .5; }
 
   .tile {
     border: 1px solid var(--line);
@@ -132,14 +129,9 @@
   }
   .tile-val {
     font-family: var(--mono); font-variant-numeric: tabular-nums;
-    display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 4px;
     overflow-wrap: anywhere;
   }
-  .tile-v { font-size: 20px; font-weight: 500; letter-spacing: -.02em; line-height: 1.15; }
-  .tile-u { font-size: 11px; color: var(--muted); }
-  .tile-sep { font-size: 13px; color: var(--line); margin: 0 3px; }
-  .tile--text .tile-v { font-size: 13.5px; letter-spacing: 0; line-height: 1.45; }
-  .tile--dual .tile-v { font-size: 16px; }
+  .tile-v { font-size: 13.5px; font-weight: 500; line-height: 1.45; }
 
   .banner {
     border: 1px solid var(--line);
@@ -266,63 +258,22 @@
     <section>
       <div class="sec-head">
         <h2 class="eyebrow">Repeater</h2>
-        <span class="note" id="statsNote"></span>
       </div>
 
       <div class="banner" id="statsBanner" data-mode="disconnected"></div>
 
       <div class="grid" id="statsGrid">
-        <div class="tile tile--text">
+        <div class="tile">
           <div class="tile-k">Name</div>
-          <div class="tile-val"><span class="tile-v" data-v="name">&mdash;</span><span class="tile-u" data-u="name"></span></div>
+          <div class="tile-val"><span class="tile-v" data-v="name">&mdash;</span></div>
         </div>
-        <div class="tile tile--text">
+        <div class="tile">
           <div class="tile-k">Firmware</div>
-          <div class="tile-val"><span class="tile-v" data-v="firmware">&mdash;</span><span class="tile-u" data-u="firmware"></span></div>
+          <div class="tile-val"><span class="tile-v" data-v="firmware">&mdash;</span></div>
         </div>
-        <div class="tile tile--text">
+        <div class="tile">
           <div class="tile-k">Board</div>
-          <div class="tile-val"><span class="tile-v" data-v="board">&mdash;</span><span class="tile-u" data-u="board"></span></div>
-        </div>
-        <div class="tile tile--text">
-          <div class="tile-k">Radio config</div>
-          <div class="tile-val"><span class="tile-v" data-v="radio">&mdash;</span><span class="tile-u" data-u="radio"></span></div>
-        </div>
-        <div class="tile">
-          <div class="tile-k">Uptime</div>
-          <div class="tile-val"><span class="tile-v" data-v="uptime">&mdash;</span><span class="tile-u" data-u="uptime"></span></div>
-        </div>
-        <div class="tile">
-          <div class="tile-k">Battery</div>
-          <div class="tile-val"><span class="tile-v" data-v="battery">&mdash;</span><span class="tile-u" data-u="battery"></span></div>
-        </div>
-        <div class="tile">
-          <div class="tile-k">Noise floor</div>
-          <div class="tile-val"><span class="tile-v" data-v="noise">&mdash;</span><span class="tile-u" data-u="noise"></span></div>
-        </div>
-        <div class="tile tile--dual">
-          <div class="tile-k">Last RSSI / SNR</div>
-          <div class="tile-val">
-            <span class="tile-v" data-v="rssi">&mdash;</span><span class="tile-u" data-u="rssi"></span>
-            <span class="tile-sep">/</span>
-            <span class="tile-v" data-v="snr">&mdash;</span><span class="tile-u" data-u="snr"></span>
-          </div>
-        </div>
-        <div class="tile">
-          <div class="tile-k">Packets RX</div>
-          <div class="tile-val"><span class="tile-v" data-v="rx">&mdash;</span><span class="tile-u" data-u="rx"></span></div>
-        </div>
-        <div class="tile">
-          <div class="tile-k">Packets TX</div>
-          <div class="tile-val"><span class="tile-v" data-v="tx">&mdash;</span><span class="tile-u" data-u="tx"></span></div>
-        </div>
-        <div class="tile">
-          <div class="tile-k">Forwarded</div>
-          <div class="tile-val"><span class="tile-v" data-v="fwd">&mdash;</span><span class="tile-u" data-u="fwd"></span></div>
-        </div>
-        <div class="tile">
-          <div class="tile-k">Duplicates</div>
-          <div class="tile-val"><span class="tile-v" data-v="dups">&mdash;</span><span class="tile-u" data-u="dups"></span></div>
+          <div class="tile-val"><span class="tile-v" data-v="board">&mdash;</span></div>
         </div>
       </div>
     </section>
@@ -365,16 +316,14 @@
 
   var DASH = "—";
 
-  var vEls = {}, uEls = {};
+  var vEls = {};
   document.querySelectorAll("[data-v]").forEach(function (el) { vEls[el.dataset.v] = el; });
-  document.querySelectorAll("[data-u]").forEach(function (el) { uEls[el.dataset.u] = el; });
 
   var chirp = document.getElementById("chirp");
   var chip = document.getElementById("chip");
   var meta = document.getElementById("meta");
   var statsGrid = document.getElementById("statsGrid");
   var statsBanner = document.getElementById("statsBanner");
-  var statsNote = document.getElementById("statsNote");
   var drop = document.getElementById("drop");
   var fileInput = document.getElementById("file");
   var dropMain = document.getElementById("dropMain");
@@ -393,7 +342,7 @@
     disconnected: "● No device"
   };
   var BANNER_TEXT = {
-    bootloader: "Device is in bootloader mode — stats unavailable",
+    bootloader: "Device is in bootloader mode — details unavailable",
     disconnected: "No device connected"
   };
   var STATE_TEXT = { idle: "Idle", flashing: "Flashing", done: "Done", error: "Error" };
@@ -406,32 +355,9 @@
     return r.json();
   }
 
-  function setVal(key, value, unit) {
-    var v = vEls[key], u = uEls[key];
-    if (!v) return;
-    v.textContent = value == null ? DASH : String(value);
-    if (u) u.textContent = value == null ? "" : (unit || "");
-  }
-
-  function fmtUptime(secs) {
-    if (secs == null) return null;
-    var d = Math.floor(secs / 86400),
-        h = Math.floor((secs % 86400) / 3600),
-        m = Math.floor((secs % 3600) / 60);
-    if (d) return d + "d " + h + "h " + m + "m";
-    if (h) return h + "h " + m + "m";
-    return m + "m";
-  }
-
-  function fmtBattery(mv) { return mv == null ? null : (mv / 1000).toFixed(2); }
-
-  function fmtCount(n) { return n == null ? null : Number(n).toLocaleString(); }
-
-  function fmtNum(n, digits) {
-    if (n == null) return null;
-    var x = Number(n);
-    if (!isFinite(x)) return null;
-    return digits == null ? String(x) : x.toFixed(digits);
+  function setVal(key, value) {
+    var v = vEls[key];
+    if (v) v.textContent = value == null ? DASH : String(value);
   }
 
   function fmtAge(secs) {
@@ -468,34 +394,13 @@
     setDeviceMode(data.device);
 
     var info = data.device_info || {};
-    var stats = data.stats || {};
-    var core = stats.core || {};
-    var radio = stats.radio || {};
-    var pk = stats.packets || {};
-
-    setVal("name", info.name != null ? info.name : null);
-    setVal("firmware", info.firmware != null ? info.firmware : null);
-    setVal("board", info.board != null ? info.board : null);
-    setVal("radio", info.radio_config != null ? info.radio_config : null);
-
-    setVal("uptime", fmtUptime(core.uptime_secs));
-    setVal("battery", fmtBattery(core.battery_mv), "V");
-    setVal("noise", fmtNum(radio.noise_floor), "dBm");
-    setVal("rssi", fmtNum(radio.last_rssi), "dBm");
-    setVal("snr", fmtNum(radio.last_snr, 1), "dB");
-
-    var recv = pk.recv != null ? pk.recv : pk.recv_total;
-    var sent = pk.sent != null ? pk.sent : pk.sent_total;
-    setVal("rx", fmtCount(recv));
-    setVal("tx", fmtCount(sent));
-    setVal("fwd", fmtCount(pk.fwd_total));
-
-    var dd = pk.direct_dups, fd = pk.flood_dups;
-    setVal("dups", (dd == null && fd == null) ? null : fmtCount((dd || 0) + (fd || 0)));
+    setVal("name", info.name);
+    setVal("firmware", info.firmware);
+    setVal("board", info.board);
 
     var path = (data.device && data.device.path) || "no serial port";
     meta.textContent = path + "  ·  " +
-      (data.age_secs == null ? "no readings yet" : "updated " + fmtAge(data.age_secs));
+      (data.age_secs == null ? "not read yet" : "read " + fmtAge(data.age_secs));
 
     var normal = deviceMode === "normal";
     statsGrid.style.display = normal ? "" : "none";
@@ -503,14 +408,7 @@
     if (!normal) {
       statsBanner.dataset.mode = deviceMode;
       statsBanner.textContent = BANNER_TEXT[deviceMode] || BANNER_TEXT.disconnected;
-      statsNote.textContent = "";
-      statsGrid.classList.remove("is-stale");
-      return;
     }
-
-    var stale = data.age_secs != null && data.age_secs > 30;
-    statsGrid.classList.toggle("is-stale", stale);
-    statsNote.textContent = stale ? "stale · last read " + fmtAge(data.age_secs) : "";
   }
 
   var statsTimer = null;
