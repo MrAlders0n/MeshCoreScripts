@@ -1,9 +1,13 @@
 # g2flasher
 
 Web-based firmware flasher for a MeshCore Station G2 or Station G3
-connected to a Raspberry Pi over USB. Upload a `.bin`, watch esptool run,
-see the repeater's name, firmware and board while the page is open.
+connected to a Raspberry Pi over USB. Upload a `.bin`, watch esptool run.
 Nothing is stored on the Pi.
+
+Nothing here opens the radio's serial port except esptool, during a flash.
+The page reports whether a station is attached and which port it is on,
+and that comes from the device node in `/dev/serial/by-id`, not from
+talking to the radio.
 
 Both stations are ESP32-S3 boards with the same 16MB flash layout, so the
 flash flow is identical; only the USB device name differs (`BQ_Station_G2_*`
@@ -82,10 +86,22 @@ Telemetry units of this kind typically set `Restart=always`. That does not fight
 an explicit `systemctl stop` — systemd honours the stop — so there is no race
 back onto the port mid-flash.
 
-Stopping a unit needs privilege and g2flasher runs as an unprivileged service
-account, so a deployment has to permit that account to run `systemctl stop` and
-`systemctl start` for this unit under sudo without a password. Where it is not
-permitted, g2flasher logs that it could not stop the unit and flashes anyway: a
+Stopping a unit needs privilege, and g2flasher runs as an unprivileged service
+account. It tries two routes, in this order:
+
+1. **Directly.** `systemctl` is not setuid — it hands the request to PID 1 over
+   D-Bus and polkit decides. Grant the service account this one unit with a
+   polkit rule matching `org.freedesktop.systemd1.manage-units` on the unit
+   name, for the `start` and `stop` verbs only.
+2. **Through `sudo -n`**, for deployments that grant the rights in sudoers
+   instead.
+
+Prefer the first. Our own unit sets `NoNewPrivileges=true`, and that flag stops
+sudo becoming root at all — whatever sudoers says, sudo fails with *"the no new
+privileges flag is set"*. Nothing about the D-Bus route is affected by it, so
+the polkit rule works with the hardening left on.
+
+Where neither is permitted, g2flasher logs both refusals and flashes anyway: a
 disrupted flash beats one that never starts.
 
 **Known limitation:** if the g2flasher process itself is killed mid-flash, the
@@ -99,9 +115,8 @@ stop/start runbook as the fallback:
 ## Notes
 
 - Flash sequence: 1200-baud bootloader touch → `esptool write_flash 0x10000`.
-- Name, firmware and board are read once per serial connection, only while
-  a browser has the page open, and never while the device is in bootloader
-  mode. A flash drops the connection, so the firmware shown refreshes itself.
+- The page never opens the serial port, so it cannot contend with a flash
+  or with anything else on the host.
 - Environment: `G2FLASHER_PASSWORD` (required), `G2FLASHER_PORT` (default 80),
   `G2FLASHER_SERIAL_UNIT` (default `mctomqtt`, see above).
 - Run the shell tests: `bash tests/run_tests.sh` from `g2flasher/`.

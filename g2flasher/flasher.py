@@ -31,6 +31,8 @@ FLASH_TIMEOUT_SECS = 300
 SERIAL_UNIT_ENV = "G2FLASHER_SERIAL_UNIT"
 DEFAULT_SERIAL_UNIT = "mctomqtt"
 SYSTEMCTL_TIMEOUT_SECS = 30
+TRACEBACK_MARKER = "Traceback (most recent call last):"
+MAX_DIAGNOSTIC_LINES = 20
 
 _lock = threading.Lock()
 _state = {"state": "idle", "progress": "", "log": []}
@@ -63,18 +65,18 @@ def _fail(message: str):
     _set_state("error", message)
 
 
-def start_flash(fw_path: str, poller) -> bool:
+def start_flash(fw_path: str) -> bool:
     """Kick off a flash in a background thread. False if one is running."""
     with _lock:
         if _state["state"] == "flashing":
             return False
         _state.update({"state": "flashing", "progress": "Starting...", "log": []})
-    threading.Thread(target=_flash_worker, args=(fw_path, poller),
+    threading.Thread(target=_flash_worker, args=(fw_path,),
                      daemon=True, name="flash-worker").start()
     return True
 
 
-def _flash_worker(fw_path: str, poller):
+def _flash_worker(fw_path: str):
     held_unit = None
     try:
         digest = _sha256(fw_path)
@@ -82,8 +84,6 @@ def _flash_worker(fw_path: str, poller):
         _append_log(f"Firmware: {os.path.basename(fw_path)} ({size_kb:.0f} KB)")
         _append_log(f"SHA256: {digest}")
 
-        _append_log("Stopping stats poller to release the serial port...")
-        poller.stop()
         held_unit = _release_serial_unit()
 
         dev = devices.detect()
@@ -110,8 +110,11 @@ def _flash_worker(fw_path: str, poller):
         if dev is None:
             if touch_output:
                 _append_log("--- touch output (for diagnosis) ---")
-                for line in touch_output:
+                for line in _without_traceback(touch_output):
                     _append_log(line)
+            _append_log("The station did not come back in bootloader mode. If "
+                        "something else still holds its serial port, that is "
+                        "the usual cause.")
             _fail("Bootloader port did not appear")
             return
         _append_log("Bootloader ready.")
@@ -137,11 +140,6 @@ def _flash_worker(fw_path: str, poller):
             os.remove(fw_path)
         except OSError:
             pass
-        _append_log("Restarting stats poller...")
-        try:
-            poller.start()
-        except Exception as e:
-            _append_log(f"Warning: could not restart stats poller: {e}")
         _append_log("Done.")
 
 
@@ -171,10 +169,12 @@ def _release_serial_unit() -> str | None:
         return None
 
     _append_log(f"Stopping {unit} to release the serial port...")
-    code, output = _systemctl(["stop", unit], sudo=True)
+    code, output = _systemctl_privileged(["stop", unit])
     if code != 0:
         _append_log(f"Warning: could not stop {unit} (exit {code}) — the flash "
-                    "may be disrupted while it holds the port.")
+                    "may be disrupted while it holds the port. Grant the "
+                    "service account rights over this unit, by polkit rule or "
+                    "by sudoers.")
         if output:
             _append_log(output)
         return None
@@ -185,7 +185,7 @@ def _release_serial_unit() -> str | None:
 def _restore_serial_unit(unit: str):
     """Start a unit _release_serial_unit stopped. Reports, never raises."""
     _append_log(f"Restarting {unit}...")
-    code, output = _systemctl(["start", unit], sudo=True)
+    code, output = _systemctl_privileged(["start", unit])
     if code == 0:
         _append_log(f"Restarted {unit}.")
         return
@@ -197,13 +197,60 @@ def _restore_serial_unit(unit: str):
         _append_log(output)
 
 
+def _systemctl_privileged(args: list[str]) -> tuple[int, str]:
+    """Run a systemctl verb that needs privilege, trying both routes in.
+
+    Directly first. systemctl is not setuid: it hands the request to PID 1 over
+    D-Bus and polkit decides, so a polkit rule granting this account the unit is
+    the only route that survives NoNewPrivileges=true in our own service file.
+    Under that flag sudo cannot become root at all, whatever sudoers says.
+
+    Where a deployment grants the rights through sudoers instead, and has left
+    NoNewPrivileges off, fall back to that. If neither works the caller gets the
+    first exit code and both explanations, since either one may be the fixable
+    half.
+    """
+    args = ["--no-ask-password"] + args
+    code, output = _systemctl(args, sudo=False)
+    if code == 0:
+        return code, output
+    sudo_code, sudo_output = _systemctl(args, sudo=True)
+    if sudo_code == 0:
+        return sudo_code, sudo_output
+    return code, "\n".join(part for part in (output, sudo_output) if part)
+
+
+def _without_traceback(lines: list[str]) -> list[str]:
+    """Strip Python stack frames, keeping what actually says what went wrong.
+
+    A failed esptool run reports as an unhandled exception, and dumping thirty
+    lines of frames into the web UI buries the one line worth reading. The
+    frames and their echoed source are indented; the exception itself is not.
+    """
+    kept: list[str] = []
+    in_frames = False
+    for line in lines:
+        if TRACEBACK_MARKER in line:
+            head = line.split(TRACEBACK_MARKER)[0].rstrip()
+            if head:
+                kept.append(head)
+            in_frames = True
+            continue
+        if in_frames:
+            if not line[:1].strip():
+                continue          # a frame, or the source line under it
+            in_frames = False     # unindented again: this is the exception
+        kept.append(line)
+    return kept[-MAX_DIAGNOSTIC_LINES:]
+
+
 def _systemctl(args: list[str], sudo: bool) -> tuple[int, str]:
     """Run systemctl and return (exit code, combined output).
 
     Exit 127 means the command could not be run at all — no systemd here, or no
-    sudo — which callers treat the same as a unit that is not there. Stopping a
-    unit does need privilege; -n makes sudo refuse outright rather than block on
-    a password prompt that a background service has nobody to answer.
+    sudo — which callers treat the same as a unit that is not there. -n makes
+    sudo refuse outright rather than block on a password prompt that a
+    background service has nobody to answer.
     """
     cmd = (["sudo", "-n"] if sudo else []) + ["systemctl"] + args
     try:

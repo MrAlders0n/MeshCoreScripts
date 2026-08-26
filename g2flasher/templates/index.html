@@ -83,11 +83,6 @@
     border-bottom: 1px solid var(--line);
   }
   .title { font-size: 18px; font-weight: 600; letter-spacing: -.015em; margin: 0; }
-  .meta {
-    font-family: var(--mono); font-size: 11.5px; color: var(--muted);
-    margin: 5px 0 0; overflow-wrap: anywhere;
-  }
-
   .chip {
     font-size: 11.5px; font-weight: 500; letter-spacing: .01em;
     padding: 4px 10px; border-radius: 999px; white-space: nowrap;
@@ -108,39 +103,20 @@
     letter-spacing: .16em; color: var(--muted); margin: 0;
   }
 
-  /* ---- repeater tiles --------------------------------------------- */
+  /* ---- device panel ------------------------------------------------ */
 
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: var(--gap);
-  }
-
-  .tile {
-    border: 1px solid var(--line);
-    background: var(--panel);
-    padding: 13px 14px 15px;
-    min-width: 0;
-  }
-  .tile-k {
-    font-size: 10px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: .14em; color: var(--muted);
-    margin-bottom: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .tile-val {
-    font-family: var(--mono); font-variant-numeric: tabular-nums;
-    overflow-wrap: anywhere;
-  }
-  .tile-v { font-size: 13.5px; font-weight: 500; line-height: 1.45; }
-
-  .banner {
+  .panel {
     border: 1px solid var(--line);
     background: var(--panel);
     padding: 15px 16px;
     font-family: var(--mono); font-size: 12.5px; color: var(--muted);
-    display: none;
   }
-  .banner[data-mode="bootloader"] { border-color: rgba(232,163,61,.35); color: var(--amber); background: rgba(232,163,61,.06); }
+  .panel[data-mode="normal"]     { border-color: rgba(95,191,127,.35); }
+  .panel[data-mode="bootloader"] { border-color: rgba(232,163,61,.35); background: rgba(232,163,61,.06); }
+  .panel-state { display: block; font-size: 13px; color: var(--gray); margin-bottom: 6px; }
+  .panel[data-mode="normal"] .panel-state     { color: var(--green); }
+  .panel[data-mode="bootloader"] .panel-state { color: var(--amber); }
+  .panel-port { display: block; overflow-wrap: anywhere; }
 
   /* ---- flash ------------------------------------------------------ */
 
@@ -218,7 +194,6 @@
   .log::-webkit-scrollbar-thumb { background: var(--line); }
 
   @media (max-width: 480px) {
-    .grid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
     .masthead { padding-top: 20px; }
   }
 
@@ -248,7 +223,6 @@
   <header class="masthead">
     <div>
       <h1 class="title">Station G2/G3 Flasher</h1>
-      <p class="meta" id="meta">Connecting&hellip;</p>
     </div>
     <span class="chip" id="chip" data-mode="disconnected">&#9679; No device</span>
   </header>
@@ -260,21 +234,9 @@
         <h2 class="eyebrow">Repeater</h2>
       </div>
 
-      <div class="banner" id="statsBanner" data-mode="disconnected"></div>
-
-      <div class="grid" id="statsGrid">
-        <div class="tile">
-          <div class="tile-k">Name</div>
-          <div class="tile-val"><span class="tile-v" data-v="name">&mdash;</span></div>
-        </div>
-        <div class="tile">
-          <div class="tile-k">Firmware</div>
-          <div class="tile-val"><span class="tile-v" data-v="firmware">&mdash;</span></div>
-        </div>
-        <div class="tile">
-          <div class="tile-k">Board</div>
-          <div class="tile-val"><span class="tile-v" data-v="board">&mdash;</span></div>
-        </div>
+      <div class="panel" id="devicePanel" data-mode="disconnected">
+        <span class="panel-state" id="deviceState">Connecting&hellip;</span>
+        <span class="panel-port" id="devicePort"></span>
       </div>
     </section>
 
@@ -314,16 +276,11 @@
 (function () {
   "use strict";
 
-  var DASH = "—";
-
-  var vEls = {};
-  document.querySelectorAll("[data-v]").forEach(function (el) { vEls[el.dataset.v] = el; });
-
   var chirp = document.getElementById("chirp");
   var chip = document.getElementById("chip");
-  var meta = document.getElementById("meta");
-  var statsGrid = document.getElementById("statsGrid");
-  var statsBanner = document.getElementById("statsBanner");
+  var devicePanel = document.getElementById("devicePanel");
+  var deviceState = document.getElementById("deviceState");
+  var devicePort = document.getElementById("devicePort");
   var drop = document.getElementById("drop");
   var fileInput = document.getElementById("file");
   var dropMain = document.getElementById("dropMain");
@@ -336,14 +293,10 @@
   var badgeProgress = document.getElementById("badgeProgress");
   var logEl = document.getElementById("log");
 
-  var CHIP_TEXT = {
-    normal: "● Connected",
-    bootloader: "● Bootloader mode",
-    disconnected: "● No device"
-  };
-  var BANNER_TEXT = {
-    bootloader: "Device is in bootloader mode — details unavailable",
-    disconnected: "No device connected"
+  var MODE_LABEL = {
+    normal: "Connected",
+    bootloader: "Bootloader mode",
+    disconnected: "No device"
   };
   var STATE_TEXT = { idle: "Idle", flashing: "Flashing", done: "Done", error: "Error" };
 
@@ -353,20 +306,6 @@
     var r = await fetch(url, { credentials: "same-origin", cache: "no-store" });
     if (!r.ok) throw new Error(url + ": " + r.status);
     return r.json();
-  }
-
-  function setVal(key, value) {
-    var v = vEls[key];
-    if (v) v.textContent = value == null ? DASH : String(value);
-  }
-
-  function fmtAge(secs) {
-    if (secs == null) return "never";
-    var s = Math.max(0, Math.round(secs));
-    if (s < 60) return s + "s ago";
-    var m = Math.floor(s / 60);
-    if (m < 60) return m + "m ago";
-    return Math.floor(m / 60) + "h ago";
   }
 
   function fmtBytes(n) {
@@ -381,44 +320,14 @@
 
   function setDeviceMode(dev) {
     var mode = (dev && dev.mode) || "disconnected";
-    if (!CHIP_TEXT[mode]) mode = "disconnected";
+    if (!MODE_LABEL[mode]) mode = "disconnected";
     deviceMode = mode;
     chip.dataset.mode = mode;
-    chip.textContent = CHIP_TEXT[mode];
+    chip.textContent = "● " + MODE_LABEL[mode];
     chirp.dataset.mode = mode;
-  }
-
-  /* ---- stats ------------------------------------------------------ */
-
-  function renderStats(data) {
-    setDeviceMode(data.device);
-
-    var info = data.device_info || {};
-    setVal("name", info.name);
-    setVal("firmware", info.firmware);
-    setVal("board", info.board);
-
-    var path = (data.device && data.device.path) || "no serial port";
-    meta.textContent = path + "  ·  " +
-      (data.age_secs == null ? "not read yet" : "read " + fmtAge(data.age_secs));
-
-    var normal = deviceMode === "normal";
-    statsGrid.style.display = normal ? "" : "none";
-    statsBanner.style.display = normal ? "none" : "block";
-    if (!normal) {
-      statsBanner.dataset.mode = deviceMode;
-      statsBanner.textContent = BANNER_TEXT[deviceMode] || BANNER_TEXT.disconnected;
-    }
-  }
-
-  var statsTimer = null;
-  async function pollStats() {
-    try { renderStats(await getJSON("/api/stats")); } catch (e) { /* keep last render */ }
-    statsTimer = setTimeout(pollStats, 10000);
-  }
-  function pokeStats() {
-    if (statsTimer !== null) { clearTimeout(statsTimer); statsTimer = null; }
-    pollStats();
+    devicePanel.dataset.mode = mode;
+    deviceState.textContent = MODE_LABEL[mode];
+    devicePort.textContent = (dev && dev.path) || "no serial port";
   }
 
   /* ---- status + log ------------------------------------------------ */
@@ -448,7 +357,6 @@
 
     if (state !== lastState) {
       if (state === "flashing") { disarm(); notice.textContent = ""; notice.classList.remove("is-error"); }
-      if (lastState === "flashing") pokeStats();
       lastState = state;
     }
     updateFlashBtn();
@@ -579,7 +487,6 @@
 
   /* ---- go ----------------------------------------------------------- */
 
-  pollStats();
   pollStatus();
 })();
 </script>

@@ -22,7 +22,7 @@ UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "g2flasher_uploads")
 AUTH_USER = "admin"
 
 
-def create_app(poller, password: str) -> Flask:
+def create_app(password: str) -> Flask:
     app = Flask(__name__, static_folder=None)
     app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 
@@ -50,12 +50,6 @@ def create_app(poller, password: str) -> Flask:
     def api_status():
         return jsonify({**flasher.get_status(), "device": devices.detect()})
 
-    @app.get("/api/stats")
-    @require_auth
-    def api_stats():
-        poller.mark_viewer()
-        return jsonify({**poller.get_snapshot(), "device": devices.detect()})
-
     @app.post("/api/flash")
     @require_auth
     def api_flash():
@@ -73,7 +67,7 @@ def create_app(poller, password: str) -> Flask:
         os.close(fd)
         fw.save(fw_path)
 
-        if not flasher.start_flash(fw_path, poller):
+        if not flasher.start_flash(fw_path):
             os.remove(fw_path)
             return jsonify({"error": "Flash already in progress"}), 409
         return jsonify({"status": "started"})
@@ -87,12 +81,8 @@ def main():
         sys.exit("G2FLASHER_PASSWORD is not set — refusing to start")
     port = int(os.environ.get("G2FLASHER_PORT", "80"))
 
-    from stats import StatsPoller
-    poller = StatsPoller()
-    poller.start()
-
     from waitress import serve
-    app = create_app(poller, password)
+    app = create_app(password)
     logging.getLogger(__name__).info("g2flasher listening on :%d", port)
     serve(app, host="0.0.0.0", port=port)
 

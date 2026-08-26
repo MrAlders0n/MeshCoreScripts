@@ -99,10 +99,14 @@ STUB
 # that exercise flasher.py's serial-port lease. Every call is appended to
 # $STUB_SYSTEMCTL_LOG so a test can assert on both the calls and their order.
 # Behaviour is driven by environment variables read at call time:
-#   STUB_ACTIVE_UNIT  — the one unit `is-active` reports as running
-#   STUB_IS_ACTIVE_RC — exit code for any other unit (3 inactive, 4 no such unit)
-#   STUB_STOP_RC      — exit code for `systemctl stop`
-#   STUB_START_RC     — exit code for `systemctl start`
+#   STUB_ACTIVE_UNIT   — the one unit `is-active` reports as running
+#   STUB_IS_ACTIVE_RC  — exit code for any other unit (3 inactive, 4 no such unit)
+#   STUB_STOP_RC       — exit code for a direct `stop`, i.e. what polkit allows
+#   STUB_START_RC      — exit code for a direct `start`
+#   STUB_SUDO_STOP_RC  — exit code for a `stop` reached through sudo
+#   STUB_SUDO_START_RC — exit code for a `start` reached through sudo
+#   STUB_SUDO_RC       — non-zero makes sudo itself refuse, the way it does
+#                        under NoNewPrivileges=true, without running anything
 # These run with PATH narrowed to the stub dir, so the shebang has to name an
 # absolute interpreter — `/usr/bin/env bash` would have no PATH to find bash on.
 make_systemd_stubs() {
@@ -112,23 +116,35 @@ make_systemd_stubs() {
     cat > "$dir/systemctl" <<'STUB'
 #!/bin/sh
 printf 'systemctl %s\n' "$*" >> "${STUB_SYSTEMCTL_LOG:-/dev/null}"
-verb="$1"; shift
-unit=""
-for a in "$@"; do case "$a" in --*) ;; *) unit="$a" ;; esac; done
+verb=""; unit=""
+for a in "$@"; do
+    case "$a" in
+        --*) ;;
+        *) if [ -z "$verb" ]; then verb="$a"; else unit="$a"; fi ;;
+    esac
+done
 case "$verb" in
     is-active) [ "$unit" = "${STUB_ACTIVE_UNIT:-}" ] && exit 0
                exit "${STUB_IS_ACTIVE_RC:-3}" ;;
-    stop)      exit "${STUB_STOP_RC:-0}" ;;
-    start)     exit "${STUB_START_RC:-0}" ;;
+    stop)      [ -n "${STUB_VIA_SUDO:-}" ] && exit "${STUB_SUDO_STOP_RC:-0}"
+               exit "${STUB_STOP_RC:-0}" ;;
+    start)     [ -n "${STUB_VIA_SUDO:-}" ] && exit "${STUB_SUDO_START_RC:-0}"
+               exit "${STUB_START_RC:-0}" ;;
 esac
 exit 0
 STUB
 
-    # Log the invocation, drop sudo's own options, run what was asked.
+    # Log the invocation, drop sudo's own options, run what was asked — marking
+    # the environment so the systemctl stub can tell the two routes apart.
     cat > "$dir/sudo" <<'STUB'
 #!/bin/sh
 printf 'sudo %s\n' "$*" >> "${STUB_SYSTEMCTL_LOG:-/dev/null}"
+if [ "${STUB_SUDO_RC:-0}" -ne 0 ]; then
+    echo 'sudo: The "no new privileges" flag is set, which prevents sudo from running as root.' >&2
+    exit "${STUB_SUDO_RC}"
+fi
 while [ $# -gt 0 ]; do case "$1" in -*) shift ;; *) break ;; esac; done
+STUB_VIA_SUDO=1; export STUB_VIA_SUDO
 exec "$@"
 STUB
 
