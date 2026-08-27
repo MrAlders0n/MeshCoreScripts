@@ -51,9 +51,21 @@ reports the SD lock state.
 If the SD is overlay-locked, both scripts refuse rather than write changes that
 would vanish on the next reboot. Unlock first:
 
+    sudo sd-status          # read-only: which mode am I in?
     sudo sd-unlock          # reboots
     sudo g2flasher-update
     sudo sd-lock            # reboots, only if you want it locked again
+
+These live in `/usr/local/sbin`, which is on sudo's `secure_path` but not on a
+normal user's `PATH` — hence `sudo`, and hence `command -v sd-lock` finding
+nothing when you check as yourself.
+
+While locked, `systemctl --failed` permanently lists
+`systemd-remount-fs.service`. That is expected, not a fault: the unit applies
+fstab options to `/` at boot, and the kernel refuses to reconfigure an overlay
+mount (`overlay: No changes allowed in reconfigure`). It clears on unlock. One
+failed unit with that name is the correct baseline while locked; anything else
+is real.
 
 ## Sharing the radio with a telemetry daemon
 
@@ -123,4 +135,5 @@ Keep a manual stop/start runbook as the fallback:
 - Environment: `G2FLASHER_PASSWORD` (required), `G2FLASHER_PORT` (default 80),
   `G2FLASHER_SERIAL_UNIT` (default `mctomqtt`, see above).
 - Run the shell tests: `bash tests/run_tests.sh` from `g2flasher/`.
-  (There is no Python test suite yet.)
+  The `.py` files under `tests/` are fixtures those shell tests drive, not a
+  suite of their own — there is still no Python test runner here.
